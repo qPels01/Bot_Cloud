@@ -1,5 +1,8 @@
 import asyncio
 from db_conf import DatabaseManager
+from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand, BotCommandScopeDefault
+from db_conf import db
 
 from dotenv import load_dotenv
 import os
@@ -9,17 +12,24 @@ load_dotenv()
 
 import asyncio
 import logging
-from message_handler import Command_Handler
+import message_handler
 
-bot_handler = Command_Handler(token=get("BOT_TOKEN"))   
+bot = Bot(token=get('BOT_TOKEN'))
 PG_LINK=f"postgresql://{get("DB_USER")}:{get("DB_PASSWORD")}@{get("DB_HOST")}:5432/{get("DB_NAME")}"
 
-db = DatabaseManager(PG_LINK)
+async def set_commands():
+    commands = [BotCommand(command='start', description='Старт'),
+                BotCommand(command='download_file', description='Загрузить файл'),
+                BotCommand(command='register', description='Регистрация'),
+                BotCommand(command='get_file', description='Получить ID файла'),]
+    await bot.set_my_commands(commands, BotCommandScopeDefault())
 
 async def main():
     await db.connect()
-    dp = bot_handler.get_dp()
-    bot = bot_handler.get_bot()
+    await set_commands()
+    dp = Dispatcher()
+
+    dp.include_router(message_handler.user_router)
     try:
         await dp.start_polling(bot)
     finally:

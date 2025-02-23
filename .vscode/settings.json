@@ -1,0 +1,6 @@
+{
+    "powermode.enabled": false,
+    "powermode.presets":"exploding-rift",
+    "powermode.shake.enabled":false,
+    "powermode.combo.location":"off"   
+}
