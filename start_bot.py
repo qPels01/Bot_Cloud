@@ -12,15 +12,15 @@ load_dotenv()
 
 import asyncio
 import logging
-import message_handler
+import app.message_handelers.utils_handlers as handler_1
+import app.message_handelers.upload_file_handlers as handler_upload
 
 bot = Bot(token=get('BOT_TOKEN'))
 PG_LINK=f"postgresql://{get("DB_USER")}:{get("DB_PASSWORD")}@{get("DB_HOST")}:5432/{get("DB_NAME")}"
 
 async def set_commands():
     commands = [BotCommand(command='start', description='Старт'),
-                BotCommand(command='download_file', description='Загрузить файл'),
-                BotCommand(command='register', description='Регистрация'),
+                BotCommand(command='upload_file', description='Загрузить файл в бота'),
                 BotCommand(command='get_file', description='Получить ID файла'),]
     await bot.set_my_commands(commands, BotCommandScopeDefault())
 
@@ -29,7 +29,7 @@ async def main():
     await set_commands()
     dp = Dispatcher()
 
-    dp.include_router(message_handler.user_router)
+    dp.include_routers(handler_1.user_router, handler_upload.upload_file_router)
     try:
         await dp.start_polling(bot)
     finally:
@@ -37,4 +37,7 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO) 
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Exit")

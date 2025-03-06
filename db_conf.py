@@ -2,6 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import BigInteger, String, ForeignKey, select
 import logging
+from sqlalchemy.exc import IntegrityError
+import asyncpg.exceptions
 
 from dotenv import load_dotenv
 import os
@@ -29,6 +31,14 @@ class File_info(Base):
 
     file_id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.user_id'))
+    folder: Mapped[str] = mapped_column(String)
+    file_name: Mapped[str] = mapped_column(String)
+
+class Folders(Base):
+    __tablename__ = "folders"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.user_id'))
+    folder: Mapped[str] = mapped_column(String, primary_key= True)
 
 class DatabaseManager:
     def __init__(self):
@@ -39,12 +49,31 @@ class DatabaseManager:
             async with session.begin():
                 user = Users(user_id=user_id, user_status=user_status, username=username)
                 session.add(user)
-
-    async def add_file(self, user_id: int, file_id: str):
+    
+    async def is_user_registered(self, user_id: int):
         async with self.session_factory() as session:
             async with session.begin():
-                file_info = File_info(user_id=user_id, file_id=file_id)
-                session.add(file_info)
+                result = await session.execute(
+                    select(Users.user_id).where(Users.user_id == user_id)
+                )
+                user_ids = result.scalars().all() is not None
+                return user_ids
+
+    async def add_file(self, user_id: int, file_id: str, folder: str, file_name: str):
+        try:
+            async with self.session_factory() as session:
+                async with session.begin():
+                    new_file = File_info(file_id=file_id, user_id=user_id, folder=folder, file_name=file_name)
+                    session.add(new_file)
+                    await session.commit()  # Фиксируем транзакцию
+        except IntegrityError as e:
+            await session.rollback()  # Откатываем, если возникла ошибка
+            if isinstance(e.orig, asyncpg.exceptions.UniqueViolationError):
+                return "Файл уже существует в базе"
+            else:
+                raise
+        finally:
+            await session.close()
 
     async def get_file_id(self, user_id: int):
         async with self.session_factory() as session:
@@ -52,9 +81,42 @@ class DatabaseManager:
                 result = await session.execute(
                     select(File_info.file_id).where(File_info.user_id == user_id)
                 )
-                files = result.scalar().all()
+                files = result.scalars().all()
                 return files
+                
+    async def get_folders_by_id(self, user_id: int):
+        async with self.session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(Folders.folder).where(Folders.user_id == user_id).distinct()  
+                )
+                folders = result.scalars().all()
+                return folders
+            
+    async def create_new_folder(self, user_id: int, folder: str):
+        async with self.session_factory() as session:
+            async with session.begin():
+                folder = Folders(user_id=user_id, folder=folder)
+                session.add(folder)
 
+    async def unique_error_handler(self, user_id: int, file_id: str):
+        async with self.session_factory() as session:
+            async with session.begin():
+                try:
+                    result = await session.execute(
+                        select(File_info.folder).where(
+                            File_info.file_id==file_id, 
+                            File_info.user_id==user_id
+                            )
+                    )
+                    folder = result.scalars().first()
+                    if folder:
+                        return folder    
+                    return None
+                except Exception as e:
+                    print(f"Ошибка при проверке уникальности файла: {e}")
+                    return None
+                
     async def connect(self):
         try:
             async with engine.begin() as conn:
