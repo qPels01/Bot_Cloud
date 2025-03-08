@@ -17,3 +17,4 @@ async def available_folders(folders: list):
     for folder in folders:
         keyboard.add(InlineKeyboardButton(text=folder, callback_data=f'folder_{folder}'))
     return keyboard.adjust(1).as_markup()
+

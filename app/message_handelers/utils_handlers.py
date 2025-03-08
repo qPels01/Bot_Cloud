@@ -19,16 +19,12 @@ bot = Bot(token=get('BOT_TOKEN'))
 user_router = Router()
 
 class Form(StatesGroup): 
-    file = State()
-    filename = State()
-    create_new_folder = State()
-    choose_folder = State()
     folder = State()
 
 @user_router.message(CommandStart())
 async def on_start(message: types.Message):
     await message.answer('Привет! Чтобы пользоваться ботом, тебе нужно сначала зарегистрироваться.', 
-                         reply_markup=kb.start_kb)
+                        reply_markup=kb.start_kb)
 
 @user_router.message(F.text == "Зарегистрироваться")
 async def register_user(message: types.Message):
@@ -46,4 +42,22 @@ async def register_user(message: types.Message):
         await db.add_user(user_id, user_status, username)
         await message.answer("Вы успешно зарегистрированы! 🎉", reply_markup=ReplyKeyboardRemove())
 
+@user_router.message(Command("delete_folder"))
+async def delete_file(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    selected_folder = await db.get_folders_by_id(user_id)
 
+    await message.answer(f"Выберите папку:", reply_markup= await kb.available_folders(selected_folder))
+    await state.update_data(user_id=user_id)
+    await state.set_state(Form.folder)
+
+@user_router.callback_query(Form.folder, F.data.startswith("folder_"))
+async def file_id(callback: CallbackQuery, state: FSMContext):
+    selected_folder = callback.data.split("_", 1)[1]
+    data = await state.get_data()
+    user_id = data.get("user_id")
+
+    await db.delete_folder(user_id, selected_folder)
+    await callback.message.answer(f"Папка <b>{selected_folder}</b> успешно удалена!", parse_mode="HTML")
+
+    await state.clear()

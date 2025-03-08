@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import BigInteger, String, ForeignKey, select
+from sqlalchemy import BigInteger, String, ForeignKey, select, delete
 import logging
 from sqlalchemy.exc import IntegrityError
 import asyncpg.exceptions
@@ -32,7 +32,8 @@ class File_info(Base):
     file_id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.user_id'))
     folder: Mapped[str] = mapped_column(String)
-    file_name: Mapped[str] = mapped_column(String)
+    file_hash: Mapped[str] = mapped_column(String)
+    file_type: Mapped[str] = mapped_column(String)
 
 class Folders(Base):
     __tablename__ = "folders"
@@ -59,15 +60,15 @@ class DatabaseManager:
                 user_ids = result.scalars().all() is not None
                 return user_ids
 
-    async def add_file(self, user_id: int, file_id: str, folder: str, file_name: str):
+    async def add_file(self, user_id: int, file_id: str, folder: str, file_hash: str, file_type: str):
         try:
             async with self.session_factory() as session:
                 async with session.begin():
-                    new_file = File_info(file_id=file_id, user_id=user_id, folder=folder, file_name=file_name)
+                    new_file = File_info(file_id=file_id, user_id=user_id, folder=folder, file_hash=file_hash, file_type=file_type)
                     session.add(new_file)
-                    await session.commit()  # Фиксируем транзакцию
+                    await session.commit()  
         except IntegrityError as e:
-            await session.rollback()  # Откатываем, если возникла ошибка
+            await session.rollback()  
             if isinstance(e.orig, asyncpg.exceptions.UniqueViolationError):
                 return "Файл уже существует в базе"
             else:
@@ -75,13 +76,13 @@ class DatabaseManager:
         finally:
             await session.close()
 
-    async def get_file_id(self, user_id: int):
+    async def get_file(self, user_id: int, folder: str):
         async with self.session_factory() as session:
             async with session.begin():
                 result = await session.execute(
-                    select(File_info.file_id).where(File_info.user_id == user_id)
+                    select(File_info.file_id, File_info.file_type).where(File_info.user_id == user_id, File_info.folder == folder)
                 )
-                files = result.scalars().all()
+                files = result.all()
                 return files
                 
     async def get_folders_by_id(self, user_id: int):
@@ -99,13 +100,25 @@ class DatabaseManager:
                 folder = Folders(user_id=user_id, folder=folder)
                 session.add(folder)
 
-    async def unique_error_handler(self, user_id: int, file_id: str):
+    async def delete_folder(self, user_id: int, folder: str):
+        async with self.session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    delete(File_info)
+                    .where(File_info.user_id==user_id, File_info.folder==folder)
+                )
+                await session.execute(
+                    delete(Folders)
+                    .where(Folders.user_id==user_id, Folders.folder==folder)
+                )
+
+    async def unique_error_handler(self, user_id: int, file_hash: str):
         async with self.session_factory() as session:
             async with session.begin():
                 try:
                     result = await session.execute(
                         select(File_info.folder).where(
-                            File_info.file_id==file_id, 
+                            File_info.file_hash==file_hash, 
                             File_info.user_id==user_id
                             )
                     )

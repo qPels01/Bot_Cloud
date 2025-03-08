@@ -12,8 +12,9 @@ load_dotenv()
 
 import asyncio
 import logging
-import app.message_handelers.utils_handlers as handler_1
+import app.message_handelers.utils_handlers as handler_utils
 import app.message_handelers.upload_file_handlers as handler_upload
+import app.message_handelers.download_file_handlers as handler_download
 
 bot = Bot(token=get('BOT_TOKEN'))
 PG_LINK=f"postgresql://{get("DB_USER")}:{get("DB_PASSWORD")}@{get("DB_HOST")}:5432/{get("DB_NAME")}"
@@ -21,7 +22,8 @@ PG_LINK=f"postgresql://{get("DB_USER")}:{get("DB_PASSWORD")}@{get("DB_HOST")}:54
 async def set_commands():
     commands = [BotCommand(command='start', description='Старт'),
                 BotCommand(command='upload_file', description='Загрузить файл в бота'),
-                BotCommand(command='get_file', description='Получить ID файла'),]
+                BotCommand(command='send_file', description='Получить файлы'),
+                BotCommand(command='delete_folder', description='Удалить папку')]
     await bot.set_my_commands(commands, BotCommandScopeDefault())
 
 async def main():
@@ -29,7 +31,7 @@ async def main():
     await set_commands()
     dp = Dispatcher()
 
-    dp.include_routers(handler_1.user_router, handler_upload.upload_file_router)
+    dp.include_routers(handler_utils.user_router, handler_upload.upload_file_router, handler_download.download_file_router)
     try:
         await dp.start_polling(bot)
     finally:

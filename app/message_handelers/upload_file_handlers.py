@@ -7,6 +7,7 @@ from aiogram.filters.command import Command
 from db_conf import db
 from sqlalchemy.exc import IntegrityError
 from asyncpg.exceptions import UniqueViolationError
+from middlewares import get_file_hash_from_telegram
 
 from dotenv import load_dotenv
 import os
@@ -25,6 +26,7 @@ class Form(StatesGroup):
     choose_folder = State()
     folder = State()
 
+
 @upload_file_router.message(Command("upload_file"))
 async def on_start(message: types.Message, state: FSMContext):
     await message.answer('Внесите файл')
@@ -36,29 +38,23 @@ async def get_user_file(message: Message, state: FSMContext):
     if message.document:
         file_id = message.document.file_id
         file_type = "документ"
+        await state.update_data(file_id=file_id, file_type=file_type)
     elif message.photo:
         file_id = message.photo[-1].file_id
         file_type = "фото"
+        await state.update_data(file_id=file_id, file_type=file_type)
     elif message.video:
         file_id = message.video.file_id
         file_type = "видео"
+        await state.update_data(file_id=file_id, file_type=file_type)
     elif message.audio:
         file_id = message.audio.file_id
         file_type = "аудио"
+        await state.update_data(file_id=file_id, file_type=file_type)
     else:
-        await message.answer("Файл не распознан.")
+        await message.answer("❗ Ошибка: файл не распознан.")
         return
 
-    await state.update_data(file_id=file_id)
-
-    await message.answer("Введите название файла:")
-    await state.set_state(Form.filename)
-
-@upload_file_router.message(Form.filename)
-async def get_filename(message: Message, state: FSMContext):
-    filename = message.text
-    await state.update_data(filename=filename)
-    
     await message.answer("Выбирите действие:", reply_markup= kb.folders_choice)
     await state.set_state(Form.folder)
 
@@ -72,7 +68,6 @@ async def create_folder(message: Message, state: FSMContext):
     user_id = message.from_user.id
     foldername = message.text 
 
-
     await db.create_new_folder(user_id, foldername)
     await state.update_data(selected_folder=foldername)
     
@@ -84,12 +79,13 @@ async def create_folder(message: Message, state: FSMContext):
         await message.answer("Выберите папку:", reply_markup= await kb.available_folders(folders))
         await state.set_state(Form.choose_folder)
     else:
-        await message.answer("Ошибка: не удалось загрузить список папок.")
+        await message.answer("❗ Ошибка: не удалось загрузить список папок.")
 
 @upload_file_router.callback_query(F.data == "choose_folder")
 async def callback_folders(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     folders = await db.get_folders_by_id(user_id)
+
     if not folders:
         await callback.message.answer("У вас нет доступных папок. Создайте новую!")
         return
@@ -103,7 +99,6 @@ async def callback_folders(callback: CallbackQuery, state: FSMContext):
 async def folder_selected(callback: CallbackQuery, state: FSMContext):
     folder_name = callback.data.split("_", 1)[1]  # Извлекаем имя папки из callback_data
 
-    # Сохраняем папку в состояние
     await state.update_data(selected_folder=folder_name)
 
     await callback.message.answer(f"Вы выбрали папку: <b>{folder_name}</b>", parse_mode="HTML")
@@ -111,27 +106,22 @@ async def folder_selected(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     user_id = callback.from_user.id
     file_id = data.get("file_id")
-    filename = data.get("filename")
     folder = data.get("selected_folder")
+    file_type = data.get("file_type")
 
-    if not file_id or not filename:
+    file_hash = await get_file_hash_from_telegram(file_id)
+
+    if not file_id:
         await callback.message.answer("❗ Ошибка: файл или имя файла не были переданы.")
         await state.set_state(Form.file)
         return
 
-    existing_folder = await db.unique_error_handler(user_id, file_id)
+    existing_folder = await db.unique_error_handler(user_id, file_hash)
 
-    if existing_folder:
-        await callback.message.answer(f"❗ Этот файл уже добавлен в папку <b>{existing_folder}</b>.",parse_mode="HTML")
-        await state.clear()
-        return
-    
     try:
-        if file_id and filename:
-            await db.add_file(user_id, file_id, folder, filename)
-            await callback.message.answer(f"📂 Файл <b>{filename}</b> успешно добавлен в папку <b>{folder}</b>!", parse_mode="HTML")
-
-            # Очистка состояния
+        if file_id:
+            await db.add_file(user_id, file_id, folder, file_hash, file_type)
+            await callback.message.answer(f"📂 Файл успешно добавлен в папку <b>{folder}</b>!", parse_mode="HTML")
             await state.clear()
         else:
             await state.set_state(Form.file)
