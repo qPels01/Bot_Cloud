@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import BigInteger, String, ForeignKey, select, delete
+from sqlalchemy import BigInteger, String, ForeignKey, select, delete, update
 import logging
 from sqlalchemy.exc import IntegrityError
 import asyncpg.exceptions
@@ -24,7 +24,6 @@ class Users(Base):
 
     user_id: Mapped[int] = mapped_column(BigInteger,primary_key=True)
     username: Mapped[str] = mapped_column(String)
-    user_status: Mapped[str] = mapped_column(String)
 
 class File_info(Base):
     __tablename__ = "file_info"
@@ -45,10 +44,10 @@ class DatabaseManager:
     def __init__(self):
         self.session_factory = SessionLocal 
 
-    async def add_user(self, user_id: int, user_status: str, username: str):
+    async def add_user(self, user_id: int, username: str):
         async with self.session_factory() as session:
             async with session.begin():
-                user = Users(user_id=user_id, user_status=user_status, username=username)
+                user = Users(user_id=user_id, username=username)
                 session.add(user)
     
     async def is_user_registered(self, user_id: int):
@@ -57,8 +56,7 @@ class DatabaseManager:
                 result = await session.execute(
                     select(Users.user_id).where(Users.user_id == user_id)
                 )
-                user_ids = result.scalars().all() is not None
-                return user_ids
+                return result.scalar() is not None
 
     async def add_file(self, user_id: int, file_id: str, folder: str, file_hash: str, file_type: str):
         try:
@@ -111,6 +109,23 @@ class DatabaseManager:
                     delete(Folders)
                     .where(Folders.user_id==user_id, Folders.folder==folder)
                 )
+
+    async def rename_folder(self, user_id: int, folder: str, new_folder_name: str):
+        async with self.session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    update(Folders)
+                    .where(Folders.user_id == user_id, Folders.folder == folder)
+                    .values(folder=new_folder_name)
+                )
+                                
+                await session.execute(
+                    update(File_info)
+                    .where(File_info.user_id == user_id, File_info.folder == folder)
+                    .values(folder=new_folder_name)
+                )
+
+
 
     async def unique_error_handler(self, user_id: int, file_hash: str):
         async with self.session_factory() as session:

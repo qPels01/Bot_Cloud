@@ -23,7 +23,8 @@ async def set_commands():
     commands = [BotCommand(command='start', description='Старт'),
                 BotCommand(command='upload_file', description='Загрузить файл в бота'),
                 BotCommand(command='send_file', description='Получить файлы'),
-                BotCommand(command='delete_folder', description='Удалить папку')]
+                BotCommand(command='delete_folder', description='Удалить папку'),
+                BotCommand(command='rename_folder', description='Переименовать папку')]
     await bot.set_my_commands(commands, BotCommandScopeDefault())
 
 async def main():
